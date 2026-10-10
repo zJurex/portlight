@@ -563,7 +563,7 @@ const showSettings = () => {
     h('p', { class: 'label' }, t('set.lang')),
     langPicker(),
     getLang() !== 'es' ? h('p', { class: 'muted small' }, t('set.machine'), ' ',
-      h('a', { href: 'https://github.com/portlight-game/portlight/issues/new?labels=i18n', target: '_blank', rel: 'noopener' }, t('set.suggest'))) : '',
+      h('a', { href: 'https://github.com/zJurex/portlight/issues/new?labels=i18n', target: '_blank', rel: 'noopener' }, t('set.suggest'))) : '',
     toggle(t('set.sound'), S.settings.sound, (v) => { S.settings.sound = v; setSound(v); save(); blip('coin'); }),
     toggle(t('set.motion'), S.settings.motion, (v) => { S.settings.motion = v; map.reduceMotion = v; document.documentElement.classList.toggle('reduce-motion', v); save(); }),
     toggle(t('set.data'), S.settings.data, (v) => { S.settings.data = v; save(); }),
