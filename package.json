@@ -1,0 +1,19 @@
+{
+  "name": "portlight",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*", "sim"],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/shared && tsc -p apps/api && tsc -p apps/web",
+    "build": "npm run build -w apps/web",
+    "dev:api": "npm run dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "deploy": "npm run build && npm run deploy -w apps/api",
+    "i18n:check": "node ops/i18n-check.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

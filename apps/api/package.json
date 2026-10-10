@@ -1,0 +1,17 @@
+{
+  "name": "@portlight/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "smoke": "node ../../ops/smoke.mjs"
+  },
+  "dependencies": {
+    "@portlight/shared": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250910.0",
+    "wrangler": "4.149.0"
+  }
+}

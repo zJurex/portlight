@@ -1,0 +1,10 @@
+{
+  "name": "Portlight",
+  "short_name": "Portlight",
+  "description": "Un mundo compartido de empresas: producí, comerciá y competí por tu provincia.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0E1B2E",
+  "theme_color": "#0E1B2E",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

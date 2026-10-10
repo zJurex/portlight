@@ -1,4 +1,4 @@
-# PLAN — Puerto Franco
+# PLAN — Portlight
 
 Fuente de verdad: `docs/PROMPT_MAESTRO.md`. No se pasa de fase sin cumplir la compuerta.
 

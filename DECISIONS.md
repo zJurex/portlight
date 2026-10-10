@@ -2,7 +2,16 @@
 
 Registro de decisiones y de límites verificados. Cada límite lleva URL y fecha de consulta.
 
-## 2026-10-09 — Nombre: se mantiene "Puerto Franco" (provisorio)
+## 2026-10-09 — Nombre definitivo: **Portlight** (reemplaza a "Puerto Franco")
+
+- Motivo: el usuario pidió un nombre en inglés. "Portlight" es la luz de un puerto (un faro) y también la claraboya de un barco. Encaja con la estética "puerto de noche" y con el logo del faro, y se pronuncia fácil en es/en/pt.
+- Verificación: búsqueda web de "Portlight" game. No hay juegos ni apps con ese nombre; solo existe una ONG de EE. UU. (Portlight Strategies), de otro rubro y sin conflicto en la clase de videojuegos.
+- `portlight.pages.dev` no resuelve, así que el nombre está libre en el subdominio gratuito. El Worker se publica como `portlight`.
+- Descartados: "Harborlight" (ya existe un juego web con ese nombre en Cinevva), "Freeport" (empresa y ciudad muy conocidas) y "Lanternport" (cuesta pronunciarlo en es/pt).
+- Repositorio sugerido en GitHub: `portlight` (lo crea el usuario).
+- Pendiente humano antes de comprar un dominio: revisar las bases de marcas de la OMPI y del INPI.
+
+## 2026-10-09 — (Histórico) Nombre provisorio "Puerto Franco"
 
 - Búsquedas web ("Puerto Franco" game / videojuego / itch.io / marca software): no aparece ningún juego, app ni marca de software activa con ese nombre. Los resultados cercanos son *Puerto Rico* (juego de mesa) y *Uncharted Waters*, sin conflicto.
 - Riesgo: "puerto franco" es un término genérico (zona franca), así que la marca sería débil y difícil de registrar. Para un proyecto gratuito alcanza.
@@ -34,3 +43,19 @@ Registro de decisiones y de límites verificados. Cada límite lleva URL y fecha
   - Los bots no escriben órdenes en filas: se calculan como función determinística de (ref, hora, semilla) y solo se escribe cuando un humano opera contra ellos.
 - Un solo Durable Object "Exchange" (SQLite) concentra el libro de órdenes de los 10 productos y serializa el matching. Con 10 productos alcanza; se parte por producto si la CPU lo pide.
 - El contador de cuota propio vive en el DO (contadores en memoria con flush periódico) para activar el modo ahorro al 80 %.
+
+## 2026-10-09 — Arquitectura de la fase 1: un Durable Object como única autoridad
+
+- **Todo el estado económico** (usuarios, empresas, lotes, órdenes, operaciones, ledger y cupos) vive en **un solo Durable Object `World` con SQLite**. Serializa todas las operaciones, así que no hay condiciones de carrera ni hace falta coordinar D1 con el DO. Las operaciones son atómicas con `transactionSync`.
+- **D1 queda para más adelante:** snapshots de ranking, métricas diarias y copias. En la fase 1 no se usa porque agregaría escrituras sin necesidad.
+- **Los estáticos los sirve Workers Static Assets.** No cuentan como requests del Worker, porque solo `/api/*` ejecuta código (`run_worker_first`).
+- **El mapa se guarda como un único blob en `meta`:** 1 fila escrita por cambio y 1 fila leída al despertar, en vez de recorrer la tabla de lotes.
+- **Bots perezosos:** las cotizaciones del creador de mercado son una función determinística de (producto, ref, ventana de 15 min). Solo se escribe el uso del cupo cuando alguien opera contra el bot.
+- **Precio de referencia:** solo cuentan las operaciones humano-humano (`n` = operaciones reales). Las operaciones contra bots no mueven la ref, para que no se refuerce sola.
+- **Prioridad humana:** el bot iguala (nunca mejora) una orden humana que esté dentro de su banda de ±15 % de la ref. Fuera de esa banda la ignora, para que una orden extrema no arrastre a los bots.
+- **Ledger:** cada movimiento de caja es una fila con su motivo (start, lot, build, upgrade, maintenance, buy, sell, escrow, release). Invariante: caja = SUM(ledger) por empresa, y masa monetaria = Σ caja + Σ reservas de órdenes de compra.
+- **Comisión del 3 %:** la paga el vendedor y queda neta en la fila `sell`. El valor bruto está en `trades`.
+- **Mantenimiento perezoso:** 0,5 % diario del valor invertido, cobrado al actuar y nunca por debajo de cero.
+- **Cuota:** el DO cuenta sus requests diarios. Activa el modo ahorro al 80 % y el modo solo lectura al 100 % (sección 7).
+- **Mapa v1:** cartograma de 11 países de Latinoamérica más "Resto del mundo" (8 regiones), 281 distritos de 8×8 lotes. En la v1 solo se crece dentro del distrito propio, y no hay transporte entre distritos hasta la fase 2.
+- **Edificios habilitados en la v1:** los 9 productivos más el Almacén. La Tienda y el Puerto quedan definidos pero apagados hasta la fase 2.
