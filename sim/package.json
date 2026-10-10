@@ -1,1 +1,11 @@
-{"name":"@portlight/sim","private":true,"type":"module"}
+{
+  "name": "@portlight/sim",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sim": "tsx src/run.ts",
+    "sim:quick": "tsx src/run.ts --quick"
+  },
+  "dependencies": { "@portlight/shared": "*" },
+  "devDependencies": { "tsx": "^4.19.2" }
+}

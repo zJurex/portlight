@@ -1,5 +1,17 @@
 # STATUS
 
+## 2026-10-10
+
+- **Fase 2 aprobada:** el simulador corrió 10.000 jugadores durante 90 días (`sim/REPORT.md`).
+  - Índice de precios: desvío máximo de 5,5 % (8,3 % con tramposos).
+  - Arbitraje: 0,24 % diario como máximo.
+  - Payback de la estrategia del tutorial: 12,7 h.
+  - Top 1 %: 5,2 × la mediana.
+  - Desvío contable: 0 centavos.
+- Se corrigieron cuatro exploits o desequilibrios que encontró el simulador (ver DECISIONS.md). Las reglas ya están desplegadas en producción.
+- **Para vigilar:** la masa monetaria crece unas 5 veces en 75 días (sin inflación de precios). Faltan sumideros cosméticos.
+- **Pendiente humano:** el push a GitHub (login), los secretos de Cloudflare en GitHub y los 30 minutos de juego.
+
 ## 2026-10-09
 
 - **En producción:** https://portlight.portlight-api.workers.dev (Workers + Durable Object SQLite, plan gratuito).

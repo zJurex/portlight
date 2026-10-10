@@ -17,6 +17,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run i18n:check
+      - name: Simulación rápida de la economía (1.000 jugadores, 30 días)
+        run: npm run sim:quick -w sim
       - run: npm run build
       - name: Tamaño del JS inicial (tope 200 KB comprimido)
         run: |

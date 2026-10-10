@@ -98,10 +98,21 @@ export const ECON = {
   lotPrice: [50_000, 150_000, 400_000, 1_000_000],
   refWindowMs: 48 * 3600_000,
   refHalfWeightTrades: 20,
-  stateBuyBp: 7000,
-  stateSellBp: 13000,
+  stateBuyBp: 8500,
+  /** 'base': piso/techo del Estado fijos sobre el valor base · 'ref': relativos a ref (espiral) */
+  stateAnchor: 'base' as 'base' | 'ref',
+  stateSellBp: 11500,
   /** cupo diario del Estado por distrito y producto, según el nivel del producto */
   stateDailyQty: { raw: 200, mid: 80, final: 20 } as Record<Tier, number>,
+  /** el cupo crece con cada jugador activo del distrito (demanda pública) */
+  stateDailyQtyPerActive: { raw: 250, mid: 80, final: 30 } as Record<Tier, number>,
+  /** la ref no se mueve más de ±10 % por día respecto del cierre anterior */
+  refDailyMoveBp: 1000,
+  /** banda de precios de una orden: 0,5 a 2 × ref */
+  orderMinBp: 5000,
+  orderMaxBp: 20000,
+  /** un par comprador-vendedor cuenta como una sola operación real en la ventana de ref */
+  refOnePerPair: true,
   /** creadores de mercado: cantidad por ventana de renovación */
   botBucketMs: 15 * 60_000,
   botQty: { raw: 300, mid: 100, final: 30 } as Record<Tier, number>,

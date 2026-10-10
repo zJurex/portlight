@@ -21,10 +21,11 @@ Fuente de verdad: `docs/PROMPT_MAESTRO.md`. No se pasa de fase sin cumplir la co
 - **Compuerta:** desplegado en URL gratuita ✅ (https://portlight.portlight-api.workers.dev); 30 min de juego seguido sin errores ⏳ (falta la sesión humana, ver NEXT_ACTIONS)
 
 ## Fase 2 — Economía validada
-- [ ] `/sim`: 10.000 jugadores, 90 días, estrategias variadas + agentes tramposos, usando el mismo motor de `packages/shared`
-- [ ] Ledger en centavos; control diario de masa monetaria
-- [ ] Calibrar valores de `ECONOMY.md`
-- **Compuerta:** criterios de la sección 6 (índice ±15 %, arbitraje <2 %/día, payback <24 h, top 1 % ≤ 20× mediana al día 30, cero creación de dinero)
+- [x] `/sim`: 10.000 jugadores, 90 días, estrategias variadas + agentes tramposos, usando el mismo motor de `packages/shared`
+- [x] Ledger en centavos; control diario de masa monetaria (desvío 0 en el simulador)
+- [x] Calibrar valores de `ECONOMY.md` (Estado anclado al valor base, banda 0,85–1,15, cupos por jugador activo, defensas de la ref)
+- [ ] Agrandar los distritos antes de ~1.500 jugadores activos (hoy hay 62 lotes libres por distrito; ver ECONOMY.md)
+- **Compuerta:** criterios de la sección 6 ✅ APROBADA el 2026-10-10 con 10.000 jugadores y 90 días (ver sim/REPORT.md)
 
 ## Fase 3 — Social y viral
 - [ ] Rankings (empresa, distrito, país, país ajustado), evento semanal, vitrina + editor de logo 16×16

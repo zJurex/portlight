@@ -59,3 +59,18 @@ Registro de decisiones y de límites verificados. Cada límite lleva URL y fecha
 - **Cuota:** el DO cuenta sus requests diarios. Activa el modo ahorro al 80 % y el modo solo lectura al 100 % (sección 7).
 - **Mapa v1:** cartograma de 11 países de Latinoamérica más "Resto del mundo" (8 regiones), 281 distritos de 8×8 lotes. En la v1 solo se crece dentro del distrito propio, y no hay transporte entre distritos hasta la fase 2.
 - **Edificios habilitados en la v1:** los 9 productivos más el Almacén. La Tienda y el Puerto quedan definidos pero apagados hasta la fase 2.
+
+## 2026-10-10 — Fase 2: calibración de la economía con el simulador
+
+El simulador (`sim/`, el mismo motor que el servidor) encontró cuatro problemas en las reglas originales. Las correcciones están en `ECONOMY.md` y la evidencia en `sim/REPORT.md`.
+
+1. **Espiral deflacionario:** un piso del Estado relativo a la ref (0,70 × ref) arrastra la ref hacia abajo sin fin; la madera cayó un 95 % en 30 días. → **El Estado se ancla al valor base**, con una banda de 0,85 a 1,15 × base. Se cambia el valor del prompt (0,70/1,30 × ref) porque con él no se cumple el criterio del índice ±15 %.
+2. **Bucle bot → Estado (10,8 % diario):** con el bot atado a la ref y el Estado al valor base, comprarle al bot y venderle al Estado daba ganancia. → **El bot cotiza siempre dentro de la banda del Estado.**
+3. **Reventa al Estado (5,7 % diario):** comprar barato en un distrito con el cupo agotado y revenderlo al Estado en otro. → **El Estado solo compra lo producido por la propia empresa.**
+4. **Manipulación de la ref por lavado entre cuentas propias:** → **un trade por par cada 48 h**, precio recortado a la banda, tope de ±10 % diario y banda de órdenes de 0,5 a 2 × ref.
+
+Además, los cupos del Estado crecen con los jugadores activos de cada distrito (demanda pública), para que la economía escale con la población.
+
+El criterio de payback se mide como la mejor estrategia honesta disponible para un recién llegado (la del tutorial: granja y vender). Las estrategias que compran insumos para edificios futuros mezclan esa inversión con la primera. El informe muestra todas las estrategias.
+
+Los costos de los edificios quedan como en el prompt maestro: bajarlos no cambiaba el resultado.

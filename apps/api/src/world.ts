@@ -3,8 +3,8 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   BASE_VALUE, BUILDING_IDS, BUILDINGS, DISTRICTS, ECON, MAX_LEVEL, PRODUCTS, PRODUCT_TIER,
-  applyHumanPriority, botQuotes, buildingValue, collect, isStateLot, lotDistrict, lotNeighbors, lotRing,
-  marketFee, matchOrder, neighborBonusPct, pendingUnits, rateMilli, refPrice, stateLots, stateQuotes,
+  applyHumanPriority, botInsideState, botQuotes, orderBand, refPriceCapped, refTradeValue, stateDailyQty, buildingValue, collect, isStateLot, lotDistrict, lotNeighbors, lotRing,
+  marketFee, matchOrder, neighborBonusPct, pendingUnits, rateMilli, stateLots, stateQuotes,
   storageCapacity, upgradeCost,
   type BookLevel, type BuildingId, type CompanyView, type ErrorCode, type Inventory, type Level, type LotState,
   type MapCompany, type MarketDetail, type MarketSummary, type MeResponse, type OrderView, type ProductId,
@@ -27,6 +27,9 @@ interface Company {
   id: number; userId: number; name: string; color: number; district: number;
   cash: number; inv: Inventory; freeClaims: number; maintAt: number; createdAt: number;
   lots: LotState[];
+  /** lo producido que el Estado todavía puede comprarle */
+  stateCredit: Inventory;
+  lastSeenDay: number;
 }
 interface Order {
   id: number; companyId: number; product: ProductId; side: Side;
@@ -58,7 +61,15 @@ CREATE TABLE IF NOT EXISTS bot_usage(product TEXT PRIMARY KEY, v TEXT NOT NULL) 
 CREATE TABLE IF NOT EXISTS state_quota(day INTEGER NOT NULL, district INTEGER NOT NULL, product TEXT NOT NULL, bought INTEGER NOT NULL,
   sold INTEGER NOT NULL, PRIMARY KEY(day, district, product)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT NOT NULL) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS ref_pairs(product TEXT NOT NULL, pair TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY(product, pair)) WITHOUT ROWID;
 `;
+
+/** migraciones de columnas sobre tablas ya creadas (se ignoran si ya existen) */
+const COLUMN_MIGRATIONS = [
+  "ALTER TABLE companies ADD COLUMN state_credit TEXT NOT NULL DEFAULT '{}'",
+  'ALTER TABLE companies ADD COLUMN last_seen_day INTEGER NOT NULL DEFAULT 0',
+  'CREATE INDEX IF NOT EXISTS companies_seen ON companies(last_seen_day)',
+];
 
 const json = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers } });
@@ -89,6 +100,8 @@ export class World extends DurableObject<Env> {
   private mapLots = new Map<number, [number, number, number]>();
   private mapCompanies = new Map<number, MapCompany>();
   private lastClosedDay = 0;
+  private prevClose = new Map<ProductId, number>();
+  private activeByDistrict = new Map<number, number>();
   private cache = new Map<string, { at: number; body: string; etag: string }>();
   private reqDay = 0;
   private reqCount = 0;
@@ -102,6 +115,7 @@ export class World extends DurableObject<Env> {
 
   private init() {
     this.sql.exec(SCHEMA);
+    for (const m of COLUMN_MIGRATIONS) { try { this.sql.exec(m); } catch { /* ya aplicada */ } }
     const now = Date.now();
     for (const r of this.sql.exec<{ id: number; company_id: number; product: string; side: string; price: number; qty: number; filled: number; escrow: number; created_at: number }>('SELECT * FROM orders')) {
       this.orders.set(r.id, { id: r.id, companyId: r.company_id, product: r.product as ProductId, side: r.side as Side, price: r.price, qty: r.qty, filled: r.filled, escrow: r.escrow, createdAt: r.created_at });
@@ -116,6 +130,7 @@ export class World extends DurableObject<Env> {
     for (const r of this.sql.exec<{ product: string; v: string }>('SELECT * FROM bot_usage')) this.botUsage.set(r.product as ProductId, JSON.parse(r.v));
     const meta = (k: string) => this.sql.exec<{ v: string }>('SELECT v FROM meta WHERE k = ?', k).toArray()[0]?.v;
     this.lastClosedDay = Number(meta('closed_day') ?? Math.floor(now / DAY) - 1);
+    this.loadDaily(now);
     const req = JSON.parse(meta('requests') ?? '{"day":0,"n":0}');
     this.reqDay = req.day; this.reqCount = req.n;
     const map = meta('map');
@@ -224,9 +239,20 @@ export class World extends DurableObject<Env> {
       this.sql.exec('DELETE FROM state_quota WHERE day < ?', today - 1);
       this.sql.exec('DELETE FROM trades WHERE at < ?', now - 8 * DAY);
       this.sql.exec('DELETE FROM price_daily WHERE day < ?', today - 30);
+      this.sql.exec('DELETE FROM ref_pairs WHERE at < ?', now - ECON.refWindowMs);
       this.sql.exec("INSERT INTO meta(k, v) VALUES('closed_day', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", String(day));
     });
     this.lastClosedDay = day;
+    this.loadDaily(now);
+  }
+
+  /** cierres del día anterior (tope de movimiento de ref) y jugadores activos por distrito (cupos del Estado) */
+  private loadDaily(now: number) {
+    const today = Math.floor(now / DAY);
+    this.prevClose.clear();
+    for (const r of this.sql.exec<{ product: string; ref: number }>('SELECT product, ref FROM price_daily WHERE day = ?', today - 1)) this.prevClose.set(r.product as ProductId, r.ref);
+    this.activeByDistrict.clear();
+    for (const r of this.sql.exec<{ district: number; n: number }>('SELECT district, COUNT(*) AS n FROM companies WHERE last_seen_day >= ? GROUP BY district', today - 3)) this.activeByDistrict.set(r.district, r.n);
   }
 
   // ---------- cuentas ----------
@@ -248,7 +274,7 @@ export class World extends DurableObject<Env> {
       const id = this.sql.exec<{ id: number }>(
         'INSERT INTO companies(user_id, name, name_key, color, district, cash, inv, free_claims, maint_at, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
         userId, name, key, color, b.district, ECON.startCash, '{}', ECON.freeLots, now, now).one().id;
-      company = { id, userId, name: name!, color, district: b.district as number, cash: ECON.startCash, inv: {}, freeClaims: ECON.freeLots, maintAt: now, createdAt: now, lots: [] };
+      company = { id, userId, name: name!, color, district: b.district as number, cash: ECON.startCash, inv: {}, freeClaims: ECON.freeLots, maintAt: now, createdAt: now, lots: [], stateCredit: {}, lastSeenDay: 0 };
       this.ledger(now, id, ECON.startCash, 'start');
     });
     this.companies.set(company.id, company);
@@ -269,24 +295,33 @@ export class World extends DurableObject<Env> {
       id = row.id;
       this.tokens.set(hash, id);
     }
-    return this.company(id!);
+    const c = this.company(id!);
+    // última visita: como mucho una escritura por empresa y por día
+    const today = Math.floor(Date.now() / DAY);
+    if (c.lastSeenDay !== today) {
+      if (c.lastSeenDay < today - 3) this.activeByDistrict.set(c.district, (this.activeByDistrict.get(c.district) ?? 0) + 1);
+      c.lastSeenDay = today;
+      this.sql.exec('UPDATE companies SET last_seen_day = ? WHERE id = ?', today, c.id);
+    }
+    return c;
   }
 
   private company(id: number): Company {
     let c = this.companies.get(id);
     if (c) return c;
-    const r = this.sql.exec<{ id: number; user_id: number; name: string; color: number; district: number; cash: number; inv: string; free_claims: number; maint_at: number; created_at: number }>('SELECT * FROM companies WHERE id = ?', id).toArray()[0];
+    const r = this.sql.exec<{ id: number; user_id: number; name: string; color: number; district: number; cash: number; inv: string; free_claims: number; maint_at: number; created_at: number; state_credit: string; last_seen_day: number }>('SELECT * FROM companies WHERE id = ?', id).toArray()[0];
     if (!r) fail('not_found', 404);
     const lots = this.sql.exec<{ lot: number; building: string | null; level: number; mode: number; last_at: number }>('SELECT * FROM lots WHERE company_id = ?', id)
       .toArray().map((l) => ({ lot: l.lot, building: l.building as BuildingId | null, level: l.level, mode: l.mode, lastAt: l.last_at }));
-    c = { id: r.id, userId: r.user_id, name: r.name, color: r.color, district: r.district, cash: r.cash, inv: JSON.parse(r.inv), freeClaims: r.free_claims, maintAt: r.maint_at, createdAt: r.created_at, lots };
+    c = { id: r.id, userId: r.user_id, name: r.name, color: r.color, district: r.district, cash: r.cash, inv: JSON.parse(r.inv), freeClaims: r.free_claims, maintAt: r.maint_at, createdAt: r.created_at, lots, stateCredit: JSON.parse(r.state_credit || '{}'), lastSeenDay: r.last_seen_day };
     if (this.companies.size > 5000) this.companies.clear();
     this.companies.set(id, c);
     return c;
   }
 
   private saveCompany(c: Company) {
-    this.sql.exec('UPDATE companies SET cash = ?, inv = ?, free_claims = ?, maint_at = ? WHERE id = ?', c.cash, JSON.stringify(c.inv), c.freeClaims, c.maintAt, c.id);
+    this.sql.exec('UPDATE companies SET cash = ?, inv = ?, free_claims = ?, maint_at = ?, state_credit = ?, last_seen_day = ? WHERE id = ?',
+      c.cash, JSON.stringify(c.inv), c.freeClaims, c.maintAt, JSON.stringify(c.stateCredit), c.lastSeenDay, c.id);
   }
 
   private saveLot(c: Company, l: LotState) {
@@ -424,6 +459,7 @@ export class World extends DurableObject<Env> {
     this.ctx.storage.transactionSync(() => {
       this.settle(c, now);
       c.inv = r.inv;
+      for (const [p, n] of Object.entries(r.produced) as [ProductId, number][]) c.stateCredit[p] = (c.stateCredit[p] ?? 0) + n;
       for (const ch of r.lots) {
         const l = c.lots.find((x) => x.lot === ch.lot)!;
         l.lastAt = ch.lastAt;
@@ -452,7 +488,7 @@ export class World extends DurableObject<Env> {
     const from = Math.floor((now - ECON.refWindowMs) / HOUR);
     const s: TradeStats = { n: 0, qty: 0, value: 0 };
     for (const [h, v] of this.statsFor(p)) if (h >= from) { s.n += v.n; s.qty += v.qty; s.value += v.value; }
-    return refPrice(p, s);
+    return refPriceCapped(p, s, this.prevClose.get(p) ?? null);
   }
 
   private realOrders24h(p: ProductId, now: number) {
@@ -481,22 +517,24 @@ export class World extends DurableObject<Env> {
   }
 
   /** niveles de los bots y del Estado (virtuales: no se escriben hasta que alguien opera) */
-  private virtualLevels(p: ProductId, now: number, district: number | null) {
+  private virtualLevels(p: ProductId, now: number, district: number | null, seller?: Company) {
     const ref = this.ref(p, now);
     const bids = this.humanBook(p, 'buy'), asks = this.humanBook(p, 'sell');
     const bestBid = bids.length ? Math.max(...bids.map((o) => o.price)) : undefined;
     const bestAsk = asks.length ? Math.min(...asks.map((o) => o.price)) : undefined;
-    const q = applyHumanPriority(botQuotes(p, ref, now, this.realOrders24h(p, now)), ref, bestBid, bestAsk);
+    const st = stateQuotes(p, ref);
+    const q = botInsideState(applyHumanPriority(botQuotes(p, ref, now, this.realOrders24h(p, now)), ref, bestBid, bestAsk), st);
     const u = this.usage(p, now);
     const dayCap = q.bid.qty * ECON.botDailyBuckets;
     const botBid: Level = { kind: 'bot', price: q.bid.price, qty: Math.max(0, Math.min(q.bid.qty - u.bidUsed, dayCap - u.dayBought)) };
     const botAsk: Level = { kind: 'bot', price: q.ask.price, qty: Math.max(0, Math.min(q.ask.qty - u.askUsed, dayCap - u.daySold)) };
-    const st = stateQuotes(ref);
     const levels = { ref, bids: [botBid], asks: [botAsk] };
     if (district !== null) {
       const sq = this.stateQuota(Math.floor(now / DAY), district, p);
-      const cap = ECON.stateDailyQty[PRODUCT_TIER[p]];
-      levels.bids.push({ kind: 'state', price: st.bid, qty: Math.max(0, cap - sq.bought) });
+      const cap = stateDailyQty(p, this.activeByDistrict.get(district) ?? 0);
+      // el Estado solo compra lo que la empresa produjo (no se revende lo comprado)
+      const credit = seller ? seller.stateCredit[p] ?? 0 : cap;
+      levels.bids.push({ kind: 'state', price: st.bid, qty: Math.max(0, Math.min(cap - sq.bought, credit)) });
       levels.asks.push({ kind: 'state', price: st.ask, qty: Math.max(0, cap - sq.sold) });
     }
     return levels;
@@ -506,7 +544,8 @@ export class World extends DurableObject<Env> {
     if (!isProduct(b.product) || (b.side !== 'buy' && b.side !== 'sell') || !isInt(b.qty, 1, 100_000) || !isInt(b.price, 1, 1e9)) fail('order_invalid');
     const p = b.product as ProductId, side = b.side as Side, qty = b.qty as number, limit = b.price as number;
     const ref = this.ref(p, now);
-    if (limit < Math.floor(ref / 5) || limit > ref * 5) fail('order_invalid');
+    const band = orderBand(ref);
+    if (limit < band.min || limit > band.max) fail('order_invalid');
     const open = [...this.orders.values()].filter((o) => o.companyId === c.id).length;
     if (open >= ECON.maxOpenOrders) fail('order_limit');
 
@@ -517,7 +556,7 @@ export class World extends DurableObject<Env> {
       if (side === 'buy' && c.cash < limit * qty) fail('no_cash');
       if (side === 'sell') c.inv[p] = (c.inv[p] ?? 0) - qty; // los bienes quedan reservados
 
-      const v = this.virtualLevels(p, now, c.district);
+      const v = this.virtualLevels(p, now, c.district, side === 'sell' ? c : undefined);
       const human: Level[] = this.humanBook(p, side === 'buy' ? 'sell' : 'buy', c.id)
         .map((o) => ({ kind: 'human', price: o.price, qty: o.qty - o.filled, orderId: o.id, companyId: o.companyId }));
       const fills = matchOrder(side, limit, qty, [...human, ...(side === 'buy' ? v.asks : v.bids)]);
@@ -544,13 +583,12 @@ export class World extends DurableObject<Env> {
           if (o.filled >= o.qty) this.closeOrder(o, other, now);
           else this.sql.exec('UPDATE orders SET filled = ?, escrow = ? WHERE id = ?', o.filled, o.escrow, o.id);
           this.saveCompany(other);
-          const s = this.statsFor(p), cur = s.get(hour) ?? { n: 0, qty: 0, value: 0 };
-          s.set(hour, { n: cur.n + 1, qty: cur.qty + f.qty, value: cur.value + value });
-          this.sql.exec('INSERT INTO trade_hourly(product, hour, n, qty, value) VALUES(?, ?, 1, ?, ?) ON CONFLICT(product, hour) DO UPDATE SET n = n + 1, qty = qty + excluded.qty, value = value + excluded.value', p, hour, f.qty, value);
+          this.recordRefTrade(p, c.id, other.id, f.price, f.qty, now);
         } else if (f.level.kind === 'bot') {
           if (side === 'sell') { u.bidUsed += f.qty; u.dayBought += f.qty; } else { u.askUsed += f.qty; u.daySold += f.qty; }
         } else {
           const day = Math.floor(now / DAY);
+          if (side === 'sell') c.stateCredit[p] = Math.max(0, (c.stateCredit[p] ?? 0) - f.qty);
           this.sql.exec(`INSERT INTO state_quota(day, district, product, bought, sold) VALUES(?, ?, ?, ?, ?)
             ON CONFLICT(day, district, product) DO UPDATE SET bought = bought + excluded.bought, sold = sold + excluded.sold`,
             day, c.district, p, side === 'sell' ? f.qty : 0, side === 'buy' ? f.qty : 0);
@@ -584,6 +622,19 @@ export class World extends DurableObject<Env> {
     this.cache.delete('market');
     this.cache.delete(`market:${p}`);
     return { me: this.me(c, now), filled, avgPrice: filled ? Math.round(spent / filled) : null };
+  }
+
+  /** Operación humano-humano para la ref: un solo trade por par de empresas cada 48 h, a precio recortado. */
+  private recordRefTrade(p: ProductId, a: number, b: number, price: number, qty: number, now: number) {
+    const pair = a < b ? `${a}:${b}` : `${b}:${a}`;
+    const last = this.sql.exec<{ at: number }>('SELECT at FROM ref_pairs WHERE product = ? AND pair = ?', p, pair).toArray()[0];
+    if (last && now - last.at < ECON.refWindowMs) return;
+    this.sql.exec('INSERT OR REPLACE INTO ref_pairs(product, pair, at) VALUES(?, ?, ?)', p, pair, now);
+    const value = refTradeValue(p, price, qty, this.ref(p, now));
+    const hour = Math.floor(now / HOUR);
+    const s = this.statsFor(p), cur = s.get(hour) ?? { n: 0, qty: 0, value: 0 };
+    s.set(hour, { n: cur.n + 1, qty: cur.qty + qty, value: cur.value + value });
+    this.sql.exec('INSERT INTO trade_hourly(product, hour, n, qty, value) VALUES(?, ?, 1, ?, ?) ON CONFLICT(product, hour) DO UPDATE SET n = n + 1, qty = qty + excluded.qty, value = value + excluded.value', p, hour, qty, value);
   }
 
   /** cierra una orden: devuelve la reserva sobrante (dinero o bienes) */

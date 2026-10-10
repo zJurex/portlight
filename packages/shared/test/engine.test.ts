@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   BASE_VALUE, DISTRICTS, ECON, LOTS_PER_DISTRICT, TOTAL_LOTS, applyHumanPriority, botFactorBp, botQuotes,
-  collect, isStateLot, lotAtWorld, lotRing, lotWorld, maintenanceDue, matchOrder, refPrice, stateLots,
+  botInsideState, collect, isStateLot, lotAtWorld, lotRing, lotWorld, maintenanceDue, matchOrder, orderBand, refPrice,
+  refPriceCapped, refTradeValue, stateDailyQty, stateLots, stateQuotes,
   type LotState,
 } from '../src';
 
@@ -135,5 +136,38 @@ describe('mapa', () => {
       expect(lotRing(s.lot)).toBe(1);
       expect(isStateLot(s.lot)).toBe(true);
     }
+  });
+});
+
+describe('defensas de la economía (fase 2)', () => {
+  it('el Estado se ancla al valor base y no a ref', () => {
+    expect(stateQuotes('wheat', 100)).toEqual({ bid: 340, ask: 460 });
+  });
+
+  it('el bot nunca abre un bucle contra el Estado', () => {
+    const st = stateQuotes('wheat', 200);
+    const q = botInsideState(botQuotes('wheat', 200, 0, 0), st);
+    expect(q.ask.price).toBeGreaterThan(st.bid);
+    expect(q.bid.price).toBeLessThan(st.ask);
+    expect(q.bid.price).toBeLessThan(q.ask.price);
+  });
+
+  it('una operación a precio absurdo cuenta recortada a la banda del Estado', () => {
+    expect(refTradeValue('wheat', 2000, 1, 400)).toBe(460);
+    expect(refTradeValue('wheat', 1, 1, 400)).toBe(340);
+  });
+
+  it('la ref no se mueve más de 10 % por día ni sale de la banda', () => {
+    const crash = { n: 1000, qty: 1000, value: 1000 * 100 };
+    expect(refPriceCapped('wheat', crash, 400)).toBe(360);
+    expect(refPriceCapped('wheat', crash, null)).toBe(340);
+  });
+
+  it('la banda de órdenes es 0,5–2 × ref', () => {
+    expect(orderBand(400)).toEqual({ min: 200, max: 800 });
+  });
+
+  it('el cupo del Estado crece con los jugadores activos', () => {
+    expect(stateDailyQty('wheat', 10)).toBeGreaterThan(stateDailyQty('wheat', 0));
   });
 });

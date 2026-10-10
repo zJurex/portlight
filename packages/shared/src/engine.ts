@@ -138,6 +138,37 @@ export const refPrice = (product: ProductId, s: TradeStats) => {
   return Math.max(1, Math.round((base * K + vwap * s.n) / (K + s.n)));
 };
 
+/**
+ * Valor de una operación para el cálculo de ref: el precio se recorta a la banda del Estado,
+ * así una operación a precio absurdo (o un lavado entre cuentas propias) no arrastra la referencia.
+ */
+export const refTradeValue = (product: ProductId, price: number, qty: number, currentRef: number, E: typeof ECON = ECON) => {
+  const st = stateQuotes(product, currentRef, E);
+  return Math.min(st.ask, Math.max(st.bid, price)) * qty;
+};
+
+/** ref con tope de movimiento diario respecto del cierre del día anterior */
+export const refPriceCapped = (product: ProductId, s: TradeStats, prevClose: number | null, E: typeof ECON = ECON) => {
+  let r = refPrice(product, s);
+  if (E.stateAnchor === 'base') { const st = stateQuotes(product, r, E); r = Math.min(st.ask, Math.max(st.bid, r)); }
+  if (!prevClose) return r;
+  const lo = Math.floor((prevClose * (10_000 - E.refDailyMoveBp)) / 10_000);
+  const hi = Math.ceil((prevClose * (10_000 + E.refDailyMoveBp)) / 10_000);
+  return Math.min(hi, Math.max(lo, r));
+};
+
+/** banda de precios admitida para una orden límite */
+export const orderBand = (ref: number) => ({
+  min: Math.max(1, Math.floor((ref * ECON.orderMinBp) / 10_000)),
+  max: Math.ceil((ref * ECON.orderMaxBp) / 10_000),
+});
+
+/** cupo diario de compra/venta del Estado en un distrito, según sus jugadores activos */
+export const stateDailyQty = (product: ProductId, activeInDistrict: number, E: typeof ECON = ECON) => {
+  const tier = PRODUCT_TIER[product];
+  return E.stateDailyQty[tier] + E.stateDailyQtyPerActive[tier] * activeInDistrict;
+};
+
 // ---------- Bots ----------
 
 /** hash determinístico → [0, 1) */
@@ -184,11 +215,27 @@ export const applyHumanPriority = (q: BotQuotes, ref: number, bestHumanBid?: num
   return { ...q, bid, ask };
 };
 
-/** precios del Estado: compra a 0,70 × ref y vende a 1,30 × ref */
-export const stateQuotes = (ref: number) => ({
-  bid: Math.max(1, Math.floor((ref * ECON.stateBuyBp) / 10_000)),
-  ask: Math.ceil((ref * ECON.stateSellBp) / 10_000),
-});
+/**
+ * El creador de mercado nunca abre un bucle contra el Estado: no vende más barato de lo que paga
+ * el Estado ni compra más caro de lo que cobra el Estado.
+ */
+export const botInsideState = (q: BotQuotes, st: { bid: number; ask: number }): BotQuotes => {
+  const ask = Math.max(q.ask.price, st.bid + 1);
+  const bid = Math.min(q.bid.price, st.ask - 1, ask - 1);
+  return { ...q, bid: { ...q.bid, price: bid }, ask: { ...q.ask, price: ask } };
+};
+
+/**
+ * Precios del Estado (piso y techo). Por defecto se anclan al valor base del producto:
+ * anclarlos a ref provoca un espiral (piso → operaciones al piso → ref baja → piso baja), ver sim/REPORT.md.
+ */
+export const stateQuotes = (product: ProductId, ref: number, E: typeof ECON = ECON) => {
+  const anchor = E.stateAnchor === 'base' ? BASE_VALUE[product] : ref;
+  return {
+    bid: Math.max(1, Math.floor((anchor * E.stateBuyBp) / 10_000)),
+    ask: Math.ceil((anchor * E.stateSellBp) / 10_000),
+  };
+};
 
 // ---------- Matching ----------
 
