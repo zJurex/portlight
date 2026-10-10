@@ -11,14 +11,14 @@ Fuente de verdad: `docs/PROMPT_MAESTRO.md`. No se pasa de fase sin cumplir la co
 - **Compuerta:** límites documentados con URL y fecha ✅
 
 ## Fase 1 — Núcleo jugable
-- [ ] `packages/shared`: productos, recetas, edificios, niveles, distritos (IDs neutros, JSON) + motor puro (producción perezosa, matching de órdenes, precio de referencia) en enteros
-- [ ] Tests del motor (producción 24 h tope, conservación de dinero y bienes)
-- [ ] `apps/api`: Worker + D1 (esquema, migraciones) + Durable Object SQLite por producto para el libro de órdenes
-- [ ] Endpoints: invitado, empresa, lotes, construir/mejorar, recolectar, mercado (libro, órdenes límite, cancelar), referencia, snapshot de mapa
-- [ ] Bots: creadores de mercado + Empresas del Estado, perezosos, con retirada gradual y prioridad humana
-- [ ] `apps/web`: Vite + TS + Canvas 2D, i18n ICU desde el día uno (es/en/pt), barra inferior de 5 pestañas, mapa con zoom/arrastre, paleta "puerto de noche"
+- [x] `packages/shared`: productos, recetas, edificios, niveles, distritos (IDs neutros, JSON) + motor puro (producción perezosa, matching de órdenes, precio de referencia) en enteros
+- [x] Tests del motor (producción 24 h tope, conservación de dinero y bienes)
+- [x] `apps/api`: Worker + D1 (esquema, migraciones) + Durable Object SQLite por producto para el libro de órdenes
+- [x] Endpoints: invitado, empresa, lotes, construir/mejorar, recolectar, mercado (libro, órdenes límite, cancelar), referencia, snapshot de mapa
+- [x] Bots: creadores de mercado + Empresas del Estado, perezosos, con retirada gradual y prioridad humana
+- [x] `apps/web`: Vite + TS + Canvas 2D, i18n ICU desde el día uno (es/en/pt), barra inferior de 5 pestañas, mapa con zoom/arrastre, paleta "puerto de noche"
 - [ ] CI en GitHub Actions (lint, tests, build, chequeo de claves i18n)
-- **Compuerta:** desplegado en URL gratuita; 30 min de juego seguido sin errores
+- **Compuerta:** desplegado en URL gratuita ✅ (https://portlight.portlight-api.workers.dev); 30 min de juego seguido sin errores ⏳ (falta la sesión humana, ver NEXT_ACTIONS)
 
 ## Fase 2 — Economía validada
 - [ ] `/sim`: 10.000 jugadores, 90 días, estrategias variadas + agentes tramposos, usando el mismo motor de `packages/shared`
